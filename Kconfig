@@ -1,0 +1,5 @@
+menu "spi-external-mutex"
+
+rsource "drivers/Kconfig"
+
+endmenu
