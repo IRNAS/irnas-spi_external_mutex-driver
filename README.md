@@ -4,6 +4,33 @@ This driver provides a mechanism for 2 SPI Masters (MCUs) to use the same bus to
 
 It uses a single GPIO line to signal the mutex/lock state.
 
+## Instalation
+
+This driver was written and tested for nrf-sdk v1.5.0
+
+To install, first modify `.../ncs/nrf/west.yml` and add the following sections:
+
+1. In `remotes`, add the following if not already added:
+
+```yaml
+ - name: irnas
+   url-base: https://github.com/irnas
+```
+
+2. In the `projects` section add at the bottom:
+
+```yaml
+- name: irnas-spi_external_mutex-driver
+  repo-path: irnas-spi_external_mutex-driver
+  path: irnas/irnas-spi_external_mutex-driver
+  remote: irnas
+  revision: v1.0.0
+```
+
+Then run west update in your freshly created bash/command prompt session.
+
+Above command will clone `irnas-spi_external_mutex-driver` repository inside of `ncs/irnas/`. You can now use the driver in your application projects.
+
 ## Usage
 
 To enable this driver, device tree, KConfig and peripheral driver modifications are reqired.
