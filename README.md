@@ -81,7 +81,7 @@ An optional `CONFIG_NRFX_SPIM_EXT_MUTEX_ACQUIRE_TIMEOUT_MS` can also be set to a
 
 See [KConfig](./drivers/spi_ext_mutex/Kconfig) for details.
 
-### Usage in a peripheral driver
+### Usage in a peripheral spi driver
 
 The SPI external lock must be acquired before a set of spi transactions that must remain uninterrupted by the other MCU with writes to the same peripheral.
 Locally, for thread safety, this is already done with calls to `acquire` and `release`.
@@ -89,13 +89,13 @@ Locally, for thread safety, this is already done with calls to `acquire` and `re
 Thus, it is recommended to call `spi_ext_mutex_acquire` before  `acquire` and `spi_ext_mutex_release` after `release`.
 If `spi_ext_mutex_acquire` returns an error, `spi_ext_mutex_release` must be called. The driver can then retry to acquire the lock or exit with an error.
 
-See the en25 flash driver as an example.
+See the [EN25 flash driver](https://github.com/IRNAS/zephyr-spi-flash-en25-driver/) as an example.
 
 ## Notes
 
 In order to get a custom spi driver to compile and replace an existing zephyr spi driver, at least one of the "in-tree" drivers must be selected. See the spi cmakefile in `ncs/zephyr/drivers/spi/CMakeLists.txt` for details.
 
-We thus select the original SPIM driver, which also includes all the corrent HAL files from nordic.
+We thus select the original SPIM driver, which also includes all the correct HAL files from nordic.
 
 For this reason you might get the following compiler warning for unused functions:
 
