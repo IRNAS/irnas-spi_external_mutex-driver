@@ -89,7 +89,7 @@ Locally, for thread safety, this is already done with calls to `acquire` and `re
 Thus, it is recommended to call `spi_ext_mutex_acquire` before  `acquire` and `spi_ext_mutex_release` after `release`.
 If `spi_ext_mutex_acquire` returns an error, `spi_ext_mutex_release` must be called. The driver can then retry to acquire the lock or exit with an error.
 
-See the [EN25 flash driver](https://github.com/IRNAS/zephyr-spi-flash-en25-driver/) as an example.
+See the [EN25 flash driver](https://github.com/IRNAS/zephyr-spi-flash-en25-driver/blob/master/drivers/flash/spi_flash_en25.c) as an example. Look at `acquire_ext_mutex` and `release_ext_mutex` in `spi_flash_en25_read`, `spi_flash_en25_write`, `spi_flash_en25_erase`, `spi_flash_en25_init` and `spi_flash_en25_pm_control`.
 
 ## Notes
 
