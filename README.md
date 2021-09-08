@@ -27,7 +27,7 @@ To install, first modify `.../ncs/nrf/west.yml` and add the following sections:
   revision: v1.0.0
 ```
 
-Then run west update in your freshly created bash/command prompt session.
+Then run `west update` in your freshly created bash/command prompt session.
 
 Above command will clone `irnas-spi_external_mutex-driver` repository inside of `ncs/irnas/`. You can now use the driver in your application projects.
 
@@ -46,7 +46,7 @@ In your boards DTS file, modify the desired SPI peripheral and add the following
 The MCU that uses spi more often should be `"master"`, since `"slave"` performs an additional check of the `sclk` line
 and is therefore a bit slower to acquire the lock.
 
-See [nordic,nrf-spim-ext-mutex.yaml](../../../dts/bindings/nordic,nrf-spim-ext-mutex.yaml) for details.
+See [irnas,nrf-spim-ext-mutex.yaml](./dts/bindings/irnas,nrf-spim-ext-mutex.yaml) for details.
 
 An example is provided here:
 
@@ -54,7 +54,7 @@ An example is provided here:
 &spi3 {
     status = "okay";
 
-    compatible = "nordic,nrf-spim-ext-mutex";
+    compatible = "irnas,nrf-spim-ext-mutex";
     signal-gpios = <&gpio0 1 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>;
     mutex-role = "master";
 
@@ -78,6 +78,8 @@ In your projects `prj.conf`, you must set `CONFIG_NRFX_SPIM_EXT_MUTEX_CS_COUNT` 
 For the DTS example above, `CONFIG_NRFX_SPIM_EXT_MUTEX_CS_COUNT` has to be set to `1`.
 
 An optional `CONFIG_NRFX_SPIM_EXT_MUTEX_ACQUIRE_TIMEOUT_MS` can also be set to a non-default value (default is 2000), if you expect the mutex to be held for longer.
+
+See [KConfig](./drivers/spi_ext_mutex/Kconfig) for details.
 
 ### Usage in a peripheral driver
 
@@ -117,3 +119,11 @@ It is recommended to check the return of `device_get_binding` for all spi periph
 
 Also, do not immediately start spi transactions after reseting the other MCU (e.g. via a reset pin).
 
+## Notes on nrf52832
+
+Due to hardware anomaly 52 on nrf52832 chips, the nrf SPIM driver can not be used (see `CONFIG_SOC_NRF52832_ALLOW_SPIM_DESPITE_PAN_58` for details).
+We would have to modify the SPI driver in the same manner as we did the SPIM to add external mutex functionality for nrf52832 chips (and other chips where using EasyDMA is not ok).
+
+Might work for spi3 and spi4, but this is not tested.
+
+If the need arises, this can be done quite easily, using the same process of modification, since the drivers differ very slightly.

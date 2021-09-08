@@ -42,10 +42,10 @@ endmenu
 if SPI_NRFX
 
 # Workaround for not being able to have commas in macro arguments
-DT_COMPAT_NORDIC_NRF_SPIM_EXT_MUTEX := nordic,nrf-spim-ext-mutex
+DT_COMPAT_IRNAS_NRF_SPIM_EXT_MUTEX := irnas,nrf-spim-ext-mutex
 
 config SPI_0_NRF_SPIM_EXT_MUTEX
-	def_bool $(dt_nodelabel_has_compat,spi0,$(DT_COMPAT_NORDIC_NRF_SPIM_EXT_MUTEX))
+	def_bool $(dt_nodelabel_has_compat,spi0,$(DT_COMPAT_IRNAS_NRF_SPIM_EXT_MUTEX))
 	# This driver is not available for nRF52832 because of Product Anomaly 58
 	# (SPIM: An additional byte is clocked out when RXD.MAXCNT == 1 and TXD.MAXCNT <= 1)
 	# Allow the 'EasyDMA' driver only if this automatic safety-disable is overridden
@@ -56,7 +56,7 @@ config SPI_0_NRF_SPIM_EXT_MUTEX
 	  Enable nRF SPI Master with EasyDMA on port 0.
 
 config SPI_1_NRF_SPIM_EXT_MUTEX
-	def_bool $(dt_nodelabel_has_compat,spi1,$(DT_COMPAT_NORDIC_NRF_SPIM_EXT_MUTEX))
+	def_bool $(dt_nodelabel_has_compat,spi1,$(DT_COMPAT_IRNAS_NRF_SPIM_EXT_MUTEX))
 	# This driver is not available for nRF52832 because of Product Anomaly 58
 	# (SPIM: An additional byte is clocked out when RXD.MAXCNT == 1 and TXD.MAXCNT <= 1)
 	# Allow the 'EasyDMA' driver only if this automatic safety-disable is overridden
@@ -67,7 +67,7 @@ config SPI_1_NRF_SPIM_EXT_MUTEX
 	  Enable nRF SPI Master with EasyDMA on port 1.
 
 config SPI_2_NRF_SPIM_EXT_MUTEX
-	def_bool $(dt_nodelabel_has_compat,spi2,$(DT_COMPAT_NORDIC_NRF_SPIM_EXT_MUTEX))
+	def_bool $(dt_nodelabel_has_compat,spi2,$(DT_COMPAT_IRNAS_NRF_SPIM_EXT_MUTEX))
 	# This driver is not available for nRF52832 because of Product Anomaly 58
 	# (SPIM: An additional byte is clocked out when RXD.MAXCNT == 1 and TXD.MAXCNT <= 1)
 	# Allow the 'EasyDMA' driver only if this automatic safety-disable is overridden
@@ -78,14 +78,14 @@ config SPI_2_NRF_SPIM_EXT_MUTEX
 	  Enable nRF SPI Master with EasyDMA on port 2.
 
 config SPI_3_NRF_SPIM_EXT_MUTEX
-	def_bool $(dt_nodelabel_has_compat,spi3,$(DT_COMPAT_NORDIC_NRF_SPIM_EXT_MUTEX))
+	def_bool $(dt_nodelabel_has_compat,spi3,$(DT_COMPAT_IRNAS_NRF_SPIM_EXT_MUTEX))
 	select NRFX_SPIM3_EXT_MUTEX
 	select NRFX_SPIM3
 	help
 	  Enable nRF SPI Master with EasyDMA on port 3.
 
 config SPI_4_NRF_SPIM_EXT_MUTEX
-	def_bool $(dt_nodelabel_has_compat,spi4,$(DT_COMPAT_NORDIC_NRF_SPIM_EXT_MUTEX))
+	def_bool $(dt_nodelabel_has_compat,spi4,$(DT_COMPAT_IRNAS_NRF_SPIM_EXT_MUTEX))
 	select NRFX_SPIM4_EXT_MUTEX
 	select NRFX_SPIM4
 	help
