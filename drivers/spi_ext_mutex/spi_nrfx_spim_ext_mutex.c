@@ -954,9 +954,6 @@ static int spim_nrfx_pm_control(const struct device *dev,
 		.signal_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), signal_gpios),       \
 		.signal_pin_num = DT_GPIO_PIN(SPIM(idx), signal_gpios),               \
 		.signal_pin_flags = DT_GPIO_FLAGS(SPIM(idx), signal_gpios),           \
-		.ack_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), ack_gpios),             \
-		.ack_pin_num = DT_GPIO_PIN(SPIM(idx), ack_gpios),                     \
-		.ack_pin_flags = DT_GPIO_FLAGS(SPIM(idx), ack_gpios),                 \
 		.mutex_role = DT_ENUM_IDX(SPIM(idx), mutex_role),                     \
 		.cs_pin_dev_labels[0] = DT_GPIO_LABEL_BY_IDX(SPIM(idx), cs_gpios, 0), \
 		.cs_pin_nums[0] = DT_GPIO_PIN_BY_IDX(SPIM(idx), cs_gpios, 0),         \
@@ -1010,9 +1007,6 @@ static int spim_nrfx_pm_control(const struct device *dev,
 		.signal_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), signal_gpios),       \
 		.signal_pin_num = DT_GPIO_PIN(SPIM(idx), signal_gpios),               \
 		.signal_pin_flags = DT_GPIO_FLAGS(SPIM(idx), signal_gpios),           \
-		.ack_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), ack_gpios),             \
-		.ack_pin_num = DT_GPIO_PIN(SPIM(idx), ack_gpios),                     \
-		.ack_pin_flags = DT_GPIO_FLAGS(SPIM(idx), ack_gpios),                 \
 		.mutex_role = DT_ENUM_IDX(SPIM(idx), mutex_role),                     \
 		.cs_pin_dev_labels[0] = DT_GPIO_LABEL_BY_IDX(SPIM(idx), cs_gpios, 0), \
 		.cs_pin_nums[0] = DT_GPIO_PIN_BY_IDX(SPIM(idx), cs_gpios, 0),         \
@@ -1069,9 +1063,6 @@ static int spim_nrfx_pm_control(const struct device *dev,
 		.signal_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), signal_gpios),       \
 		.signal_pin_num = DT_GPIO_PIN(SPIM(idx), signal_gpios),               \
 		.signal_pin_flags = DT_GPIO_FLAGS(SPIM(idx), signal_gpios),           \
-		.ack_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), ack_gpios),             \
-		.ack_pin_num = DT_GPIO_PIN(SPIM(idx), ack_gpios),                     \
-		.ack_pin_flags = DT_GPIO_FLAGS(SPIM(idx), ack_gpios),                 \
 		.mutex_role = DT_ENUM_IDX(SPIM(idx), mutex_role),                     \
 		.cs_pin_dev_labels[0] = DT_GPIO_LABEL_BY_IDX(SPIM(idx), cs_gpios, 0), \
 		.cs_pin_nums[0] = DT_GPIO_PIN_BY_IDX(SPIM(idx), cs_gpios, 0),         \
@@ -1131,9 +1122,6 @@ static int spim_nrfx_pm_control(const struct device *dev,
 		.signal_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), signal_gpios),       \
 		.signal_pin_num = DT_GPIO_PIN(SPIM(idx), signal_gpios),               \
 		.signal_pin_flags = DT_GPIO_FLAGS(SPIM(idx), signal_gpios),           \
-		.ack_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), ack_gpios),             \
-		.ack_pin_num = DT_GPIO_PIN(SPIM(idx), ack_gpios),                     \
-		.ack_pin_flags = DT_GPIO_FLAGS(SPIM(idx), ack_gpios),                 \
 		.mutex_role = DT_ENUM_IDX(SPIM(idx), mutex_role),                     \
 		.cs_pin_dev_labels[0] = DT_GPIO_LABEL_BY_IDX(SPIM(idx), cs_gpios, 0), \
 		.cs_pin_nums[0] = DT_GPIO_PIN_BY_IDX(SPIM(idx), cs_gpios, 0),         \
@@ -1196,9 +1184,6 @@ static int spim_nrfx_pm_control(const struct device *dev,
 		.signal_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), signal_gpios),       \
 		.signal_pin_num = DT_GPIO_PIN(SPIM(idx), signal_gpios),               \
 		.signal_pin_flags = DT_GPIO_FLAGS(SPIM(idx), signal_gpios),           \
-		.ack_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), ack_gpios),             \
-		.ack_pin_num = DT_GPIO_PIN(SPIM(idx), ack_gpios),                     \
-		.ack_pin_flags = DT_GPIO_FLAGS(SPIM(idx), ack_gpios),                 \
 		.mutex_role = DT_ENUM_IDX(SPIM(idx), mutex_role),                     \
 		.cs_pin_dev_labels[0] = DT_GPIO_LABEL_BY_IDX(SPIM(idx), cs_gpios, 0), \
 		.cs_pin_nums[0] = DT_GPIO_PIN_BY_IDX(SPIM(idx), cs_gpios, 0),         \
@@ -1264,9 +1249,6 @@ static int spim_nrfx_pm_control(const struct device *dev,
 		.signal_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), signal_gpios),       \
 		.signal_pin_num = DT_GPIO_PIN(SPIM(idx), signal_gpios),               \
 		.signal_pin_flags = DT_GPIO_FLAGS(SPIM(idx), signal_gpios),           \
-		.ack_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), ack_gpios),             \
-		.ack_pin_num = DT_GPIO_PIN(SPIM(idx), ack_gpios),                     \
-		.ack_pin_flags = DT_GPIO_FLAGS(SPIM(idx), ack_gpios),                 \
 		.mutex_role = DT_ENUM_IDX(SPIM(idx), mutex_role),                     \
 		.cs_pin_dev_labels[0] = DT_GPIO_LABEL_BY_IDX(SPIM(idx), cs_gpios, 0), \
 		.cs_pin_nums[0] = DT_GPIO_PIN_BY_IDX(SPIM(idx), cs_gpios, 0),         \
@@ -1335,9 +1317,6 @@ static int spim_nrfx_pm_control(const struct device *dev,
 		.signal_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), signal_gpios),       \
 		.signal_pin_num = DT_GPIO_PIN(SPIM(idx), signal_gpios),               \
 		.signal_pin_flags = DT_GPIO_FLAGS(SPIM(idx), signal_gpios),           \
-		.ack_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), ack_gpios),             \
-		.ack_pin_num = DT_GPIO_PIN(SPIM(idx), ack_gpios),                     \
-		.ack_pin_flags = DT_GPIO_FLAGS(SPIM(idx), ack_gpios),                 \
 		.mutex_role = DT_ENUM_IDX(SPIM(idx), mutex_role),                     \
 		.cs_pin_dev_labels[0] = DT_GPIO_LABEL_BY_IDX(SPIM(idx), cs_gpios, 0), \
 		.cs_pin_nums[0] = DT_GPIO_PIN_BY_IDX(SPIM(idx), cs_gpios, 0),         \
