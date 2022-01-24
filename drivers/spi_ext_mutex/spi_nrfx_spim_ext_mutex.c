@@ -169,9 +169,14 @@ static int cs_set_to_input(const struct device *dev)
 	struct spi_nrfx_data *data = get_dev_data(dev);
 	const struct spi_nrfx_config *cfg = get_dev_config(dev);
 
+	int err = 0;
 	for (int i = 0; i < CONFIG_NRFX_SPIM_EXT_MUTEX_CS_COUNT; i++)
 	{
-		gpio_pin_configure(data->cs_pin_devs[i], cfg->cs_pin_nums[i], GPIO_INPUT | cfg->cs_pin_flags[i]);
+		err = gpio_pin_configure(data->cs_pin_devs[i], cfg->cs_pin_nums[i], GPIO_INPUT | cfg->cs_pin_flags[i]);
+		if (err)
+		{
+			LOG_ERR("gpio_pin_configure err: %d", err);
+		}
 	}
 
 	return 0;
