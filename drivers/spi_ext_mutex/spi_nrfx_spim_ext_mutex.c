@@ -6,6 +6,7 @@
 
 #include <drivers/spi.h>
 #include <nrfx_spim.h>
+#include <hal/nrf_clock.h>
 #include <string.h>
 
 #define LOG_DOMAIN "spi_nrfx_spim_ext_mutex"
@@ -26,9 +27,7 @@ struct spi_nrfx_data
 	const struct device *dev;
 	size_t chunk_len;
 	bool busy;
-#ifdef CONFIG_PM_DEVICE
-	uint32_t pm_state;
-#endif
+	bool initialized;
 #if (CONFIG_SPI_NRFX_RAM_BUFFER_SIZE > 0)
 	uint8_t buffer[CONFIG_SPI_NRFX_RAM_BUFFER_SIZE];
 #endif
@@ -44,7 +43,8 @@ struct spi_nrfx_config
 {
 	nrfx_spim_t spim;
 	size_t max_chunk_len;
-	nrfx_spim_config_t config;
+	uint32_t max_freq;
+	nrfx_spim_config_t def_config;
 
 	// new:
 	char *signal_pin_dev_label;
@@ -57,6 +57,8 @@ struct spi_nrfx_config
 	int cs_pin_nums[CONFIG_NRFX_SPIM_EXT_MUTEX_CS_COUNT];
 	int cs_pin_flags[CONFIG_NRFX_SPIM_EXT_MUTEX_CS_COUNT];
 };
+
+static void event_handler(const nrfx_spim_evt_t *p_event, void *p_context);
 
 static inline struct spi_nrfx_data *get_dev_data(const struct device *dev)
 {
@@ -158,8 +160,6 @@ static inline nrf_spim_bit_order_t get_nrf_spim_bit_order(uint16_t operation)
 	}
 }
 
-static int init_spim(const struct device *dev);
-
 /**
  * @brief Set all CS pins to input
  */
@@ -169,37 +169,17 @@ static int cs_set_to_input(const struct device *dev)
 	struct spi_nrfx_data *data = get_dev_data(dev);
 	const struct spi_nrfx_config *cfg = get_dev_config(dev);
 
+	int err = 0;
 	for (int i = 0; i < CONFIG_NRFX_SPIM_EXT_MUTEX_CS_COUNT; i++)
 	{
-		gpio_pin_configure(data->cs_pin_devs[i], cfg->cs_pin_nums[i], GPIO_INPUT | cfg->cs_pin_flags[i]);
+		err = gpio_pin_configure(data->cs_pin_devs[i], cfg->cs_pin_nums[i], GPIO_INPUT | cfg->cs_pin_flags[i]);
+		if (err)
+		{
+			LOG_ERR("gpio_pin_configure err: %d", err);
+		}
 	}
 
 	return 0;
-}
-
-/**
- * @brief Returns position of the only set bit in 'n'
- *
- * @param n Integer with 1 bit set
- * @return int the position of the bit
- */
-int findPosition(uint32_t n)
-{
-	unsigned i = 1, pos = 0;
-
-	// Iterate through bits of n till we find a set bit
-	// i&n will be non-zero only when 'i' and 'n' have a set bit
-	// at same position
-	while (!(i & n))
-	{
-		// Unset current bit and set the next bit in 'i'
-		i = i << 1;
-
-		// increment position
-		++pos;
-	}
-
-	return pos;
 }
 
 static int signal_pin_set_input(const struct device *dev)
@@ -213,6 +193,7 @@ static int signal_pin_set_input(const struct device *dev)
 		LOG_ERR("gpio_pin_configure, err: %d", err);
 		return err;
 	}
+	LOG_DBG("Signal pin is input");
 
 	return 0;
 }
@@ -230,6 +211,7 @@ static int signal_pin_set_output_high(const struct device *dev)
 		LOG_ERR("gpio_pin_configure, err: %d", err);
 		return -EIO;
 	}
+	LOG_DBG("Signal pin is output high");
 
 	return 0;
 }
@@ -288,7 +270,7 @@ static int sck_pin_set_input(const struct device *dev)
 	const struct spi_nrfx_config *cfg = get_dev_config(dev);
 
 	// configure clock pin as input,
-	err = config_raw_pin(cfg->config.sck_pin, GPIO_INPUT);
+	err = config_raw_pin(cfg->def_config.sck_pin, GPIO_INPUT);
 	if (err)
 	{
 		LOG_ERR("config_raw_pin, err: %d", err);
@@ -303,7 +285,7 @@ static int sck_pin_get(const struct device *dev)
 	int err = 0;
 	const struct spi_nrfx_config *cfg = get_dev_config(dev);
 
-	err = get_raw_pin(cfg->config.sck_pin);
+	err = get_raw_pin(cfg->def_config.sck_pin);
 
 	return err; // the value
 }
@@ -314,7 +296,7 @@ static int spi_pins_to_input(const struct device *dev)
 	const struct spi_nrfx_config *cfg = get_dev_config(dev);
 
 	// configure clock pin as input dc
-	err = config_raw_pin(cfg->config.sck_pin, GPIO_INPUT);
+	err = config_raw_pin(cfg->def_config.sck_pin, GPIO_INPUT);
 	if (err)
 	{
 		LOG_ERR("config_raw_pin, err: %d", err);
@@ -322,7 +304,7 @@ static int spi_pins_to_input(const struct device *dev)
 	}
 
 	// configure mosi pin as input dc
-	err = config_raw_pin(cfg->config.mosi_pin, GPIO_INPUT);
+	err = config_raw_pin(cfg->def_config.mosi_pin, GPIO_INPUT);
 	if (err)
 	{
 		LOG_ERR("config_raw_pin, err: %d", err);
@@ -330,7 +312,7 @@ static int spi_pins_to_input(const struct device *dev)
 	}
 
 	// configure miso pin as input dc
-	err = config_raw_pin(cfg->config.miso_pin, GPIO_INPUT);
+	err = config_raw_pin(cfg->def_config.miso_pin, GPIO_INPUT);
 	if (err)
 	{
 		LOG_ERR("config_raw_pin, err: %d", err);
@@ -408,8 +390,6 @@ int spi_ext_mutex_acquire(const struct device *dev)
 		return -EAGAIN;
 	}
 
-	// k_sleep(K_MSEC(10));
-
 	// put signal pin to high
 	err = signal_pin_set_output_high(dev);
 	if (err)
@@ -417,8 +397,6 @@ int spi_ext_mutex_acquire(const struct device *dev)
 		LOG_ERR("signal_pin_set_output_high, err: %d", err);
 		return -EIO;
 	}
-
-	// k_sleep(K_MSEC(10));
 
 	// if slave role, check if clock is active
 	if (cfg->mutex_role == MUTEX_ROLE_SLAVE)
@@ -429,8 +407,6 @@ int spi_ext_mutex_acquire(const struct device *dev)
 			LOG_ERR("sck_pin_set_input, err: %d", err);
 			return -EIO;
 		}
-
-		// k_sleep(K_MSEC(10));
 
 		for (int i = 0; i < CONFIG_NRFX_SPIM_EXT_MUTEX_ACQUIRE_TIMEOUT_MS / (2 * 2); i++)
 		{
@@ -448,15 +424,9 @@ int spi_ext_mutex_acquire(const struct device *dev)
 			return -EAGAIN;
 		}
 	}
-	// init spi -> copied from power management functions bellow
-	err = init_spim(dev);
-	if (err)
-	{
-		LOG_ERR("init_spim, err: %d", err);
-	}
-	// Force reconfiguration before next transfer
-	data->ctx.config = NULL;
 
+	// unset initialized flag to force reconfiguration of SPI in transcieve
+	data->initialized = false;
 	return 0;
 }
 
@@ -479,12 +449,8 @@ int spi_ext_mutex_release(const struct device *dev)
 	// set cs pins to input pull up
 	cs_set_to_input(dev);
 
-	// k_sleep(K_MSEC(10));
-
 	// put signal pin back to input
 	err += signal_pin_set_input(dev);
-
-	// k_sleep(K_MSEC(10));
 
 	if (err)
 	{
@@ -497,7 +463,6 @@ int spi_ext_mutex_release(const struct device *dev)
 static int spi_context_mutex_init(const struct device *dev)
 {
 
-	// int err;
 	struct spi_nrfx_data *data = get_dev_data(dev);
 	const struct spi_nrfx_config *cfg = get_dev_config(dev);
 
@@ -531,10 +496,14 @@ static int spi_context_mutex_init(const struct device *dev)
 static int configure(const struct device *dev,
 					 const struct spi_config *spi_cfg)
 {
-	struct spi_context *ctx = &get_dev_data(dev)->ctx;
-	const nrfx_spim_t *spim = &get_dev_config(dev)->spim;
+	struct spi_nrfx_data *dev_data = get_dev_data(dev);
+	const struct spi_nrfx_config *dev_config = get_dev_config(dev);
+	struct spi_context *ctx = &dev_data->ctx;
+	uint32_t max_freq = dev_config->max_freq;
+	nrfx_spim_config_t config;
+	nrfx_err_t result;
 
-	if (spi_context_configured(ctx, spi_cfg))
+	if (dev_data->initialized && spi_context_configured(ctx, spi_cfg))
 	{
 		/* Already configured. No need to do it again. */
 		return 0;
@@ -542,8 +511,7 @@ static int configure(const struct device *dev,
 
 	if (SPI_OP_MODE_GET(spi_cfg->operation) != SPI_OP_MODE_MASTER)
 	{
-		LOG_ERR("Slave mode is not supported on %s",
-				dev->name);
+		LOG_ERR("Slave mode is not supported on %s", dev->name);
 		return -EINVAL;
 	}
 
@@ -561,8 +529,7 @@ static int configure(const struct device *dev,
 
 	if (SPI_WORD_SIZE_GET(spi_cfg->operation) != 8)
 	{
-		LOG_ERR("Word sizes other than 8 bits"
-				" are not supported");
+		LOG_ERR("Word sizes other than 8 bits are not supported");
 		return -EINVAL;
 	}
 
@@ -572,14 +539,40 @@ static int configure(const struct device *dev,
 		return -EINVAL;
 	}
 
+#if defined(CONFIG_SOC_NRF5340_CPUAPP)
+	/* On nRF5340, the 32 Mbps speed is supported by the application core
+	 * when it is running at 128 MHz (see the Timing specifications section
+	 * in the nRF5340 PS).
+	 */
+	if (max_freq > 16000000 &&
+		nrf_clock_hfclk_div_get(NRF_CLOCK) != NRF_CLOCK_HFCLK_DIV_1)
+	{
+		max_freq = 16000000;
+	}
+#endif
+	config = dev_config->def_config;
+	/* Limit the frequency to that supported by the SPIM instance. */
+	config.frequency = get_nrf_spim_frequency(MIN(spi_cfg->frequency,
+												  max_freq));
+	config.mode = get_nrf_spim_mode(spi_cfg->operation);
+	config.bit_order = get_nrf_spim_bit_order(spi_cfg->operation);
+	if (dev_data->initialized)
+	{
+		nrfx_spim_uninit(&dev_config->spim);
+		dev_data->initialized = false;
+	}
+	result = nrfx_spim_init(&dev_config->spim, &config,
+							event_handler, dev_data);
+	if (result != NRFX_SUCCESS)
+	{
+		LOG_ERR("Failed to initialize nrfx driver: %08x", result);
+		return -EIO;
+	}
+
+	dev_data->initialized = true;
+
 	ctx->config = spi_cfg;
 	spi_context_cs_configure(ctx);
-
-	nrf_spim_configure(spim->p_reg,
-					   get_nrf_spim_mode(spi_cfg->operation),
-					   get_nrf_spim_bit_order(spi_cfg->operation));
-	nrf_spim_frequency_set(spim->p_reg,
-						   get_nrf_spim_frequency(spi_cfg->frequency));
 
 	return 0;
 }
@@ -648,6 +641,17 @@ static void transfer_next_chunk(const struct device *dev)
 
 	spi_context_complete(ctx, error);
 	dev_data->busy = false;
+}
+
+static void event_handler(const nrfx_spim_evt_t *p_event, void *p_context)
+{
+	struct spi_nrfx_data *dev_data = p_context;
+	if (p_event->type == NRFX_SPIM_EVENT_DONE)
+	{
+		spi_context_update_tx(&dev_data->ctx, 1, dev_data->chunk_len);
+		spi_context_update_rx(&dev_data->ctx, 1, dev_data->chunk_len);
+		transfer_next_chunk(dev_data->dev);
+	}
 }
 
 static int transceive(const struct device *dev,
@@ -726,112 +730,27 @@ static const struct spi_driver_api spi_nrfx_driver_api = {
 	.release = spi_nrfx_release,
 };
 
-static void event_handler(const nrfx_spim_evt_t *p_event, void *p_context)
-{
-	struct spi_nrfx_data *dev_data = p_context;
-
-	if (p_event->type == NRFX_SPIM_EVENT_DONE)
-	{
-		spi_context_update_tx(&dev_data->ctx, 1, dev_data->chunk_len);
-		spi_context_update_rx(&dev_data->ctx, 1, dev_data->chunk_len);
-
-		transfer_next_chunk(dev_data->dev);
-	}
-}
-
-static int init_spim(const struct device *dev)
-{
-	struct spi_nrfx_data *data = get_dev_data(dev);
-	// const struct spi_nrfx_config *cfg = get_dev_config(dev);
-	nrfx_err_t result;
-	int err;
-
-	data->dev = dev;
-
-	/* This sets only default values of frequency, mode and bit order.
-	 * The proper ones are set in configure() when a transfer is started.
-	 */
-	result = nrfx_spim_init(&get_dev_config(dev)->spim,
-							&get_dev_config(dev)->config,
-							event_handler,
-							data);
-	if (result != NRFX_SUCCESS)
-	{
-		LOG_ERR("Failed to initialize device: %s", dev->name);
-		return -EBUSY;
-	}
-
-#ifdef CONFIG_PM_DEVICE
-	data->pm_state = DEVICE_PM_ACTIVE_STATE;
-	get_dev_data(dev)->pm_state = DEVICE_PM_ACTIVE_STATE;
-#endif
-
-	// NOTE: init_spim is called multiple times within this module,
-	//       but we want to init the external mutex bits only once.
-	static bool mutex_is_init = false;
-	if (!mutex_is_init)
-	{
-		err = spi_context_mutex_init(dev);
-		if (err)
-		{
-			LOG_ERR("spi_context_mutex_init, err: %d", err);
-			return err;
-		}
-		mutex_is_init = true;
-	}
-	return 0;
-}
-
 #ifdef CONFIG_PM_DEVICE
 static int spim_nrfx_pm_control(const struct device *dev,
-								uint32_t ctrl_command,
-								void *context, device_pm_cb cb, void *arg)
+								enum pm_device_action action)
 {
 	int ret = 0;
 	struct spi_nrfx_data *data = get_dev_data(dev);
 	const struct spi_nrfx_config *config = get_dev_config(dev);
 
-	if (ctrl_command == DEVICE_PM_SET_POWER_STATE)
+	switch (action)
 	{
-		uint32_t new_state = *((const uint32_t *)context);
-
-		if (new_state != data->pm_state)
-		{
-			switch (new_state)
-			{
-			case DEVICE_PM_ACTIVE_STATE:
-				ret = init_spim(dev);
-				/* Force reconfiguration before next transfer */
-				data->ctx.config = NULL;
-				break;
-
-			case DEVICE_PM_LOW_POWER_STATE:
-			case DEVICE_PM_SUSPEND_STATE:
-			case DEVICE_PM_OFF_STATE:
-				if (data->pm_state == DEVICE_PM_ACTIVE_STATE)
-				{
-					nrfx_spim_uninit(&config->spim);
-				}
-				break;
-
-			default:
-				ret = -ENOTSUP;
-			}
-			if (!ret)
-			{
-				data->pm_state = new_state;
-			}
-		}
-	}
-	else
-	{
-		__ASSERT_NO_MSG(ctrl_command == DEVICE_PM_GET_POWER_STATE);
-		*((uint32_t *)context) = data->pm_state;
-	}
-
-	if (cb)
-	{
-		cb(dev, ret, context, arg);
+	case PM_DEVICE_ACTION_RESUME:
+		/* No action needed at this point, nrfx_spim_init() will be
+		 * called at configuration before the next transfer.
+		 */
+		break;
+	case PM_DEVICE_ACTION_SUSPEND:
+		nrfx_spim_uninit(&config->spim);
+		data->initialized = false;
+		break;
+	default:
+		ret = -ENOTSUP;
 	}
 
 	return ret;
@@ -878,27 +797,32 @@ static int spim_nrfx_pm_control(const struct device *dev,
 		IRQ_CONNECT(NRFX_IRQ_NUMBER_GET(NRF_SPIM##idx),                       \
 					DT_IRQ(SPIM(idx), priority),                              \
 					nrfx_isr, nrfx_spim_##idx##_irq_handler, 0);              \
-		int err = init_spim(dev);                                             \
+                                                                              \
+		int err = spi_context_mutex_init(dev);                                \
+		if (err)                                                              \
+		{                                                                     \
+			LOG_ERR("spi_context_mutex_init, err: %d", err);                  \
+			return err;                                                       \
+		}                                                                     \
 		spi_context_unlock_unconditionally(&get_dev_data(dev)->ctx);          \
-		return err;                                                           \
+		return 0;                                                             \
 	}                                                                         \
 	static struct spi_nrfx_data spi_##idx##_data = {                          \
 		SPI_CONTEXT_INIT_LOCK(spi_##idx##_data, ctx),                         \
 		SPI_CONTEXT_INIT_SYNC(spi_##idx##_data, ctx),                         \
+		.dev = DEVICE_DT_GET(SPIM(idx)),                                      \
 		.busy = false,                                                        \
 	};                                                                        \
 	static const struct spi_nrfx_config spi_##idx##z_config = {               \
 		.spim = NRFX_SPIM_INSTANCE(idx),                                      \
 		.max_chunk_len = (1 << SPIM##idx##_EASYDMA_MAXCNT_SIZE) - 1,          \
-		.config = {                                                           \
+		.max_freq = SPIM##idx##_MAX_DATARATE * 1000000,                       \
+		.def_config = {                                                       \
 			.sck_pin = SPIM_PROP(idx, sck_pin),                               \
 			.mosi_pin = SPIM_PROP(idx, mosi_pin),                             \
 			.miso_pin = SPIM_PROP(idx, miso_pin),                             \
 			.ss_pin = NRFX_SPIM_PIN_NOT_USED,                                 \
 			.orc = CONFIG_SPI_##idx##_NRF_ORC,                                \
-			.frequency = NRF_SPIM_FREQ_4M,                                    \
-			.mode = NRF_SPIM_MODE_0,                                          \
-			.bit_order = NRF_SPIM_BIT_ORDER_MSB_FIRST,                        \
 			.miso_pull = SPIM_NRFX_MISO_PULL(idx),                            \
 			SPI_NRFX_SPIM_EXTENDED_CONFIG(idx)},                              \
 		.signal_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), signal_gpios),       \
@@ -928,27 +852,32 @@ static int spim_nrfx_pm_control(const struct device *dev,
 		IRQ_CONNECT(NRFX_IRQ_NUMBER_GET(NRF_SPIM##idx),                       \
 					DT_IRQ(SPIM(idx), priority),                              \
 					nrfx_isr, nrfx_spim_##idx##_irq_handler, 0);              \
-		int err = init_spim(dev);                                             \
+                                                                              \
+		int err = spi_context_mutex_init(dev);                                \
+		if (err)                                                              \
+		{                                                                     \
+			LOG_ERR("spi_context_mutex_init, err: %d", err);                  \
+			return err;                                                       \
+		}                                                                     \
 		spi_context_unlock_unconditionally(&get_dev_data(dev)->ctx);          \
-		return err;                                                           \
+		return 0;                                                             \
 	}                                                                         \
 	static struct spi_nrfx_data spi_##idx##_data = {                          \
 		SPI_CONTEXT_INIT_LOCK(spi_##idx##_data, ctx),                         \
 		SPI_CONTEXT_INIT_SYNC(spi_##idx##_data, ctx),                         \
+		.dev = DEVICE_DT_GET(SPIM(idx)),                                      \
 		.busy = false,                                                        \
 	};                                                                        \
 	static const struct spi_nrfx_config spi_##idx##z_config = {               \
 		.spim = NRFX_SPIM_INSTANCE(idx),                                      \
 		.max_chunk_len = (1 << SPIM##idx##_EASYDMA_MAXCNT_SIZE) - 1,          \
-		.config = {                                                           \
+		.max_freq = SPIM##idx##_MAX_DATARATE * 1000000,                       \
+		.def_config = {                                                       \
 			.sck_pin = SPIM_PROP(idx, sck_pin),                               \
 			.mosi_pin = SPIM_PROP(idx, mosi_pin),                             \
 			.miso_pin = SPIM_PROP(idx, miso_pin),                             \
 			.ss_pin = NRFX_SPIM_PIN_NOT_USED,                                 \
 			.orc = CONFIG_SPI_##idx##_NRF_ORC,                                \
-			.frequency = NRF_SPIM_FREQ_4M,                                    \
-			.mode = NRF_SPIM_MODE_0,                                          \
-			.bit_order = NRF_SPIM_BIT_ORDER_MSB_FIRST,                        \
 			.miso_pull = SPIM_NRFX_MISO_PULL(idx),                            \
 			SPI_NRFX_SPIM_EXTENDED_CONFIG(idx)},                              \
 		.signal_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), signal_gpios),       \
@@ -981,27 +910,32 @@ static int spim_nrfx_pm_control(const struct device *dev,
 		IRQ_CONNECT(NRFX_IRQ_NUMBER_GET(NRF_SPIM##idx),                       \
 					DT_IRQ(SPIM(idx), priority),                              \
 					nrfx_isr, nrfx_spim_##idx##_irq_handler, 0);              \
-		int err = init_spim(dev);                                             \
+                                                                              \
+		int err = spi_context_mutex_init(dev);                                \
+		if (err)                                                              \
+		{                                                                     \
+			LOG_ERR("spi_context_mutex_init, err: %d", err);                  \
+			return err;                                                       \
+		}                                                                     \
 		spi_context_unlock_unconditionally(&get_dev_data(dev)->ctx);          \
-		return err;                                                           \
+		return 0;                                                             \
 	}                                                                         \
 	static struct spi_nrfx_data spi_##idx##_data = {                          \
 		SPI_CONTEXT_INIT_LOCK(spi_##idx##_data, ctx),                         \
 		SPI_CONTEXT_INIT_SYNC(spi_##idx##_data, ctx),                         \
+		.dev = DEVICE_DT_GET(SPIM(idx)),                                      \
 		.busy = false,                                                        \
 	};                                                                        \
 	static const struct spi_nrfx_config spi_##idx##z_config = {               \
 		.spim = NRFX_SPIM_INSTANCE(idx),                                      \
 		.max_chunk_len = (1 << SPIM##idx##_EASYDMA_MAXCNT_SIZE) - 1,          \
-		.config = {                                                           \
+		.max_freq = SPIM##idx##_MAX_DATARATE * 1000000,                       \
+		.def_config = {                                                       \
 			.sck_pin = SPIM_PROP(idx, sck_pin),                               \
 			.mosi_pin = SPIM_PROP(idx, mosi_pin),                             \
 			.miso_pin = SPIM_PROP(idx, miso_pin),                             \
 			.ss_pin = NRFX_SPIM_PIN_NOT_USED,                                 \
 			.orc = CONFIG_SPI_##idx##_NRF_ORC,                                \
-			.frequency = NRF_SPIM_FREQ_4M,                                    \
-			.mode = NRF_SPIM_MODE_0,                                          \
-			.bit_order = NRF_SPIM_BIT_ORDER_MSB_FIRST,                        \
 			.miso_pull = SPIM_NRFX_MISO_PULL(idx),                            \
 			SPI_NRFX_SPIM_EXTENDED_CONFIG(idx)},                              \
 		.signal_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), signal_gpios),       \
@@ -1037,27 +971,32 @@ static int spim_nrfx_pm_control(const struct device *dev,
 		IRQ_CONNECT(NRFX_IRQ_NUMBER_GET(NRF_SPIM##idx),                       \
 					DT_IRQ(SPIM(idx), priority),                              \
 					nrfx_isr, nrfx_spim_##idx##_irq_handler, 0);              \
-		int err = init_spim(dev);                                             \
+                                                                              \
+		int err = spi_context_mutex_init(dev);                                \
+		if (err)                                                              \
+		{                                                                     \
+			LOG_ERR("spi_context_mutex_init, err: %d", err);                  \
+			return err;                                                       \
+		}                                                                     \
 		spi_context_unlock_unconditionally(&get_dev_data(dev)->ctx);          \
-		return err;                                                           \
+		return 0;                                                             \
 	}                                                                         \
 	static struct spi_nrfx_data spi_##idx##_data = {                          \
 		SPI_CONTEXT_INIT_LOCK(spi_##idx##_data, ctx),                         \
 		SPI_CONTEXT_INIT_SYNC(spi_##idx##_data, ctx),                         \
+		.dev = DEVICE_DT_GET(SPIM(idx)),                                      \
 		.busy = false,                                                        \
 	};                                                                        \
 	static const struct spi_nrfx_config spi_##idx##z_config = {               \
 		.spim = NRFX_SPIM_INSTANCE(idx),                                      \
 		.max_chunk_len = (1 << SPIM##idx##_EASYDMA_MAXCNT_SIZE) - 1,          \
-		.config = {                                                           \
+		.max_freq = SPIM##idx##_MAX_DATARATE * 1000000,                       \
+		.def_config = {                                                       \
 			.sck_pin = SPIM_PROP(idx, sck_pin),                               \
 			.mosi_pin = SPIM_PROP(idx, mosi_pin),                             \
 			.miso_pin = SPIM_PROP(idx, miso_pin),                             \
 			.ss_pin = NRFX_SPIM_PIN_NOT_USED,                                 \
 			.orc = CONFIG_SPI_##idx##_NRF_ORC,                                \
-			.frequency = NRF_SPIM_FREQ_4M,                                    \
-			.mode = NRF_SPIM_MODE_0,                                          \
-			.bit_order = NRF_SPIM_BIT_ORDER_MSB_FIRST,                        \
 			.miso_pull = SPIM_NRFX_MISO_PULL(idx),                            \
 			SPI_NRFX_SPIM_EXTENDED_CONFIG(idx)},                              \
 		.signal_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), signal_gpios),       \
@@ -1096,27 +1035,32 @@ static int spim_nrfx_pm_control(const struct device *dev,
 		IRQ_CONNECT(NRFX_IRQ_NUMBER_GET(NRF_SPIM##idx),                       \
 					DT_IRQ(SPIM(idx), priority),                              \
 					nrfx_isr, nrfx_spim_##idx##_irq_handler, 0);              \
-		int err = init_spim(dev);                                             \
+                                                                              \
+		int err = spi_context_mutex_init(dev);                                \
+		if (err)                                                              \
+		{                                                                     \
+			LOG_ERR("spi_context_mutex_init, err: %d", err);                  \
+			return err;                                                       \
+		}                                                                     \
 		spi_context_unlock_unconditionally(&get_dev_data(dev)->ctx);          \
-		return err;                                                           \
+		return 0;                                                             \
 	}                                                                         \
 	static struct spi_nrfx_data spi_##idx##_data = {                          \
 		SPI_CONTEXT_INIT_LOCK(spi_##idx##_data, ctx),                         \
 		SPI_CONTEXT_INIT_SYNC(spi_##idx##_data, ctx),                         \
+		.dev = DEVICE_DT_GET(SPIM(idx)),                                      \
 		.busy = false,                                                        \
 	};                                                                        \
 	static const struct spi_nrfx_config spi_##idx##z_config = {               \
 		.spim = NRFX_SPIM_INSTANCE(idx),                                      \
 		.max_chunk_len = (1 << SPIM##idx##_EASYDMA_MAXCNT_SIZE) - 1,          \
-		.config = {                                                           \
+		.max_freq = SPIM##idx##_MAX_DATARATE * 1000000,                       \
+		.def_config = {                                                       \
 			.sck_pin = SPIM_PROP(idx, sck_pin),                               \
 			.mosi_pin = SPIM_PROP(idx, mosi_pin),                             \
 			.miso_pin = SPIM_PROP(idx, miso_pin),                             \
 			.ss_pin = NRFX_SPIM_PIN_NOT_USED,                                 \
 			.orc = CONFIG_SPI_##idx##_NRF_ORC,                                \
-			.frequency = NRF_SPIM_FREQ_4M,                                    \
-			.mode = NRF_SPIM_MODE_0,                                          \
-			.bit_order = NRF_SPIM_BIT_ORDER_MSB_FIRST,                        \
 			.miso_pull = SPIM_NRFX_MISO_PULL(idx),                            \
 			SPI_NRFX_SPIM_EXTENDED_CONFIG(idx)},                              \
 		.signal_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), signal_gpios),       \
@@ -1158,27 +1102,32 @@ static int spim_nrfx_pm_control(const struct device *dev,
 		IRQ_CONNECT(NRFX_IRQ_NUMBER_GET(NRF_SPIM##idx),                       \
 					DT_IRQ(SPIM(idx), priority),                              \
 					nrfx_isr, nrfx_spim_##idx##_irq_handler, 0);              \
-		int err = init_spim(dev);                                             \
+                                                                              \
+		int err = spi_context_mutex_init(dev);                                \
+		if (err)                                                              \
+		{                                                                     \
+			LOG_ERR("spi_context_mutex_init, err: %d", err);                  \
+			return err;                                                       \
+		}                                                                     \
 		spi_context_unlock_unconditionally(&get_dev_data(dev)->ctx);          \
-		return err;                                                           \
+		return 0;                                                             \
 	}                                                                         \
 	static struct spi_nrfx_data spi_##idx##_data = {                          \
 		SPI_CONTEXT_INIT_LOCK(spi_##idx##_data, ctx),                         \
 		SPI_CONTEXT_INIT_SYNC(spi_##idx##_data, ctx),                         \
+		.dev = DEVICE_DT_GET(SPIM(idx)),                                      \
 		.busy = false,                                                        \
 	};                                                                        \
 	static const struct spi_nrfx_config spi_##idx##z_config = {               \
 		.spim = NRFX_SPIM_INSTANCE(idx),                                      \
 		.max_chunk_len = (1 << SPIM##idx##_EASYDMA_MAXCNT_SIZE) - 1,          \
-		.config = {                                                           \
+		.max_freq = SPIM##idx##_MAX_DATARATE * 1000000,                       \
+		.def_config = {                                                       \
 			.sck_pin = SPIM_PROP(idx, sck_pin),                               \
 			.mosi_pin = SPIM_PROP(idx, mosi_pin),                             \
 			.miso_pin = SPIM_PROP(idx, miso_pin),                             \
 			.ss_pin = NRFX_SPIM_PIN_NOT_USED,                                 \
 			.orc = CONFIG_SPI_##idx##_NRF_ORC,                                \
-			.frequency = NRF_SPIM_FREQ_4M,                                    \
-			.mode = NRF_SPIM_MODE_0,                                          \
-			.bit_order = NRF_SPIM_BIT_ORDER_MSB_FIRST,                        \
 			.miso_pull = SPIM_NRFX_MISO_PULL(idx),                            \
 			SPI_NRFX_SPIM_EXTENDED_CONFIG(idx)},                              \
 		.signal_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), signal_gpios),       \
@@ -1223,27 +1172,32 @@ static int spim_nrfx_pm_control(const struct device *dev,
 		IRQ_CONNECT(NRFX_IRQ_NUMBER_GET(NRF_SPIM##idx),                       \
 					DT_IRQ(SPIM(idx), priority),                              \
 					nrfx_isr, nrfx_spim_##idx##_irq_handler, 0);              \
-		int err = init_spim(dev);                                             \
+                                                                              \
+		int err = spi_context_mutex_init(dev);                                \
+		if (err)                                                              \
+		{                                                                     \
+			LOG_ERR("spi_context_mutex_init, err: %d", err);                  \
+			return err;                                                       \
+		}                                                                     \
 		spi_context_unlock_unconditionally(&get_dev_data(dev)->ctx);          \
-		return err;                                                           \
+		return 0;                                                             \
 	}                                                                         \
 	static struct spi_nrfx_data spi_##idx##_data = {                          \
 		SPI_CONTEXT_INIT_LOCK(spi_##idx##_data, ctx),                         \
 		SPI_CONTEXT_INIT_SYNC(spi_##idx##_data, ctx),                         \
+		.dev = DEVICE_DT_GET(SPIM(idx)),                                      \
 		.busy = false,                                                        \
 	};                                                                        \
 	static const struct spi_nrfx_config spi_##idx##z_config = {               \
 		.spim = NRFX_SPIM_INSTANCE(idx),                                      \
 		.max_chunk_len = (1 << SPIM##idx##_EASYDMA_MAXCNT_SIZE) - 1,          \
-		.config = {                                                           \
+		.max_freq = SPIM##idx##_MAX_DATARATE * 1000000,                       \
+		.def_config = {                                                       \
 			.sck_pin = SPIM_PROP(idx, sck_pin),                               \
 			.mosi_pin = SPIM_PROP(idx, mosi_pin),                             \
 			.miso_pin = SPIM_PROP(idx, miso_pin),                             \
 			.ss_pin = NRFX_SPIM_PIN_NOT_USED,                                 \
 			.orc = CONFIG_SPI_##idx##_NRF_ORC,                                \
-			.frequency = NRF_SPIM_FREQ_4M,                                    \
-			.mode = NRF_SPIM_MODE_0,                                          \
-			.bit_order = NRF_SPIM_BIT_ORDER_MSB_FIRST,                        \
 			.miso_pull = SPIM_NRFX_MISO_PULL(idx),                            \
 			SPI_NRFX_SPIM_EXTENDED_CONFIG(idx)},                              \
 		.signal_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), signal_gpios),       \
@@ -1291,27 +1245,32 @@ static int spim_nrfx_pm_control(const struct device *dev,
 		IRQ_CONNECT(NRFX_IRQ_NUMBER_GET(NRF_SPIM##idx),                       \
 					DT_IRQ(SPIM(idx), priority),                              \
 					nrfx_isr, nrfx_spim_##idx##_irq_handler, 0);              \
-		int err = init_spim(dev);                                             \
+                                                                              \
+		int err = spi_context_mutex_init(dev);                                \
+		if (err)                                                              \
+		{                                                                     \
+			LOG_ERR("spi_context_mutex_init, err: %d", err);                  \
+			return err;                                                       \
+		}                                                                     \
 		spi_context_unlock_unconditionally(&get_dev_data(dev)->ctx);          \
-		return err;                                                           \
+		return 0;                                                             \
 	}                                                                         \
 	static struct spi_nrfx_data spi_##idx##_data = {                          \
 		SPI_CONTEXT_INIT_LOCK(spi_##idx##_data, ctx),                         \
 		SPI_CONTEXT_INIT_SYNC(spi_##idx##_data, ctx),                         \
+		.dev = DEVICE_DT_GET(SPIM(idx)),                                      \
 		.busy = false,                                                        \
 	};                                                                        \
 	static const struct spi_nrfx_config spi_##idx##z_config = {               \
 		.spim = NRFX_SPIM_INSTANCE(idx),                                      \
 		.max_chunk_len = (1 << SPIM##idx##_EASYDMA_MAXCNT_SIZE) - 1,          \
-		.config = {                                                           \
+		.max_freq = SPIM##idx##_MAX_DATARATE * 1000000,                       \
+		.def_config = {                                                       \
 			.sck_pin = SPIM_PROP(idx, sck_pin),                               \
 			.mosi_pin = SPIM_PROP(idx, mosi_pin),                             \
 			.miso_pin = SPIM_PROP(idx, miso_pin),                             \
 			.ss_pin = NRFX_SPIM_PIN_NOT_USED,                                 \
 			.orc = CONFIG_SPI_##idx##_NRF_ORC,                                \
-			.frequency = NRF_SPIM_FREQ_4M,                                    \
-			.mode = NRF_SPIM_MODE_0,                                          \
-			.bit_order = NRF_SPIM_BIT_ORDER_MSB_FIRST,                        \
 			.miso_pull = SPIM_NRFX_MISO_PULL(idx),                            \
 			SPI_NRFX_SPIM_EXTENDED_CONFIG(idx)},                              \
 		.signal_pin_dev_label = DT_GPIO_LABEL(SPIM(idx), signal_gpios),       \

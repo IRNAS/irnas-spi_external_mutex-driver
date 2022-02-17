@@ -24,7 +24,7 @@ To install, first modify `.../ncs/nrf/west.yml` and add the following sections:
   repo-path: irnas-spi_external_mutex-driver
   path: irnas/irnas-spi_external_mutex-driver
   remote: irnas
-  revision: v1.0.1
+  revision: v2.0.0
 ```
 
 Then run `west update` in your freshly created bash/command prompt session.
