@@ -182,31 +182,6 @@ static int cs_set_to_input(const struct device *dev)
 	return 0;
 }
 
-/**
- * @brief Returns position of the only set bit in 'n'
- *
- * @param n Integer with 1 bit set
- * @return int the position of the bit
- */
-int findPosition(uint32_t n)
-{
-	unsigned i = 1, pos = 0;
-
-	// Iterate through bits of n till we find a set bit
-	// i&n will be non-zero only when 'i' and 'n' have a set bit
-	// at same position
-	while (!(i & n))
-	{
-		// Unset current bit and set the next bit in 'i'
-		i = i << 1;
-
-		// increment position
-		++pos;
-	}
-
-	return pos;
-}
-
 static int signal_pin_set_input(const struct device *dev)
 {
 	struct spi_nrfx_data *data = get_dev_data(dev);
@@ -218,6 +193,7 @@ static int signal_pin_set_input(const struct device *dev)
 		LOG_ERR("gpio_pin_configure, err: %d", err);
 		return err;
 	}
+	LOG_DBG("Signal pin is input");
 
 	return 0;
 }
@@ -235,6 +211,7 @@ static int signal_pin_set_output_high(const struct device *dev)
 		LOG_ERR("gpio_pin_configure, err: %d", err);
 		return -EIO;
 	}
+	LOG_DBG("Signal pin is output high");
 
 	return 0;
 }
@@ -413,8 +390,6 @@ int spi_ext_mutex_acquire(const struct device *dev)
 		return -EAGAIN;
 	}
 
-	// k_sleep(K_MSEC(10));
-
 	// put signal pin to high
 	err = signal_pin_set_output_high(dev);
 	if (err)
@@ -422,8 +397,6 @@ int spi_ext_mutex_acquire(const struct device *dev)
 		LOG_ERR("signal_pin_set_output_high, err: %d", err);
 		return -EIO;
 	}
-
-	// k_sleep(K_MSEC(10));
 
 	// if slave role, check if clock is active
 	if (cfg->mutex_role == MUTEX_ROLE_SLAVE)
@@ -434,8 +407,6 @@ int spi_ext_mutex_acquire(const struct device *dev)
 			LOG_ERR("sck_pin_set_input, err: %d", err);
 			return -EIO;
 		}
-
-		// k_sleep(K_MSEC(10));
 
 		for (int i = 0; i < CONFIG_NRFX_SPIM_EXT_MUTEX_ACQUIRE_TIMEOUT_MS / (2 * 2); i++)
 		{
@@ -454,11 +425,8 @@ int spi_ext_mutex_acquire(const struct device *dev)
 		}
 	}
 
-	// init spi -> copied from power management functions bellow
-	/* No action needed at this point, nrfx_spim_init() will be
-		* called at configuration before the next transfer.
-		*/
-
+	// unset initialized flag to force reconfiguration of SPI in transcieve
+	data->initialized = false;
 	return 0;
 }
 
@@ -481,12 +449,8 @@ int spi_ext_mutex_release(const struct device *dev)
 	// set cs pins to input pull up
 	cs_set_to_input(dev);
 
-	// k_sleep(K_MSEC(10));
-
 	// put signal pin back to input
 	err += signal_pin_set_input(dev);
-
-	// k_sleep(K_MSEC(10));
 
 	if (err)
 	{
@@ -499,7 +463,6 @@ int spi_ext_mutex_release(const struct device *dev)
 static int spi_context_mutex_init(const struct device *dev)
 {
 
-	// int err;
 	struct spi_nrfx_data *data = get_dev_data(dev);
 	const struct spi_nrfx_config *cfg = get_dev_config(dev);
 
